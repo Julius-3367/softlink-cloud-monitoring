@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: monitoring-collector
+    ports:
+      - "8443:8443"
+    environment:
+      - AUTH_TOKEN=3367
+    volumes:
+      - ./data:/app/data
+      - ./certs:/app/certs
+    restart: unless-stopped
+    networks:
+      - monitoring
+    command: >
+      sh -c "
+        python3 monitor.py --server --token 3367 --host 0.0.0.0 --port 8443
+      "
+    healthcheck:
+      test: >
+        CMD python3 -c "
+        import urllib.request, ssl, sys;
+        try:
+          ctx = ssl.create_default_context();
+          ctx.check_hostname = False;
+          ctx.verify_mode = ssl.CERT_NONE;
+          req = urllib.request.Request('https://localhost:8443/health', headers={'Authorization': 'Bearer 3367'});
+          urllib.request.urlopen(req, context=ctx, timeout=5);
+          sys.exit(0)
+        except Exception as e:
+          print(f'Health check failed: {e}');
+          sys.exit(1)
+        "
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: monitoring-agent
+    depends_on:
+      collector:
+        condition: service_healthy
+    environment:
+      - COLLECTOR_URL=https://collector:8443/api/metrics
+      - AUTH_TOKEN=3367
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    privileged: true
+    pid: host
+    restart: unless-stopped
+    networks:
+      - monitoring
+    command: >
+      sh -c "
+        echo '{
+          \"collector_url\": \"https://collector:8443/api/metrics\",
+          \"auth_token\": \"3367\",
+          \"interval\": 15
+        }' > /app/agent_config.json &&
+        python3 monitor.py --agent --config agent_config.json
+      "
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  monitoring_data:
+    driver: local
+

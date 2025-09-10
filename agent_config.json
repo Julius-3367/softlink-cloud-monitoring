@@ -1,0 +1,7 @@
+{
+  "collector_url": "https://localhost:8443/api/metrics",
+  "auth_token": "3367",
+  "interval": 15,
+  "hostname_override": null
+}
+
